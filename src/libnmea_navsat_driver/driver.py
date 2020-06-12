@@ -37,11 +37,12 @@ import math
 import rospy
 
 from sensor_msgs.msg import NavSatFix, NavSatStatus, TimeReference
-from geometry_msgs.msg import TwistStamped, QuaternionStamped
+from geometry_msgs.msg import TwistStamped, QuaternionStamped, PoseStamped
 from tf.transformations import quaternion_from_euler
 
 from libnmea_navsat_driver.checksum_utils import check_nmea_checksum
 import libnmea_navsat_driver.parser
+import utm
 
 
 class RosNMEADriver(object):
@@ -66,10 +67,16 @@ class RosNMEADriver(object):
             ~epe_quality5 (float): Value to use for default EPE quality for fix type 5. (default 4.0)
             ~epe_quality9 (float): Value to use for default EPE quality for fix type 9. (default 3.0)
         """
-        self.fix_pub = rospy.Publisher('fix', NavSatFix, queue_size=1)
-        self.vel_pub = rospy.Publisher('vel', TwistStamped, queue_size=1)
-        self.heading_pub = rospy.Publisher(
-            'heading', QuaternionStamped, queue_size=1)
+        self.fix_pub = rospy.Publisher('/gps/ublx/fix', NavSatFix, queue_size=1)
+        self.vel_pub = rospy.Publisher('/gps/ublx/vel', TwistStamped, queue_size=1)
+        self.heading_pub = rospy.Publisher('/gps/ublx/heading', QuaternionStamped, queue_size=1)
+        self.current_pose_pub = rospy.Publisher('/gps/ublx/current_pose', PoseStamped, queue_size=1)
+        self.stamped_pose = PoseStamped()
+        self.q = quaternion_from_euler(0, 0, 0)
+        rospy.logwarn(utm.from_latlon(47.687, 17.6504))  ###########
+        utm_coord = utm.from_latlon(47.687, 17.6504) ###########
+        rospy.logwarn(utm_coord[0]) ###########
+        rospy.logwarn(utm_coord[1]) ###########
         self.use_GNSS_time = rospy.get_param('~use_GNSS_time', False)
         if not self.use_GNSS_time:
             self.time_ref_pub = rospy.Publisher(
@@ -239,6 +246,18 @@ class RosNMEADriver(object):
 
             self.fix_pub.publish(current_fix)
 
+            utm_coord = utm.from_latlon(latitude, longitude)
+            
+            self.stamped_pose.header.stamp = current_time
+            self.stamped_pose.header.frame_id = frame_id
+            self.stamped_pose.pose.position.x = utm_coord[0]
+            self.stamped_pose.pose.position.y = utm_coord[1]
+            self.stamped_pose.pose.orientation.x = self.q[0]
+            self.stamped_pose.pose.orientation.y = self.q[1]
+            self.stamped_pose.pose.orientation.z = self.q[2]
+            self.stamped_pose.pose.orientation.w = self.q[3]
+            self.current_pose_pub.publish(self.stamped_pose) #####
+
             if not (math.isnan(data['utc_time'][0]) or self.use_GNSS_time):
                 current_time_ref.time_ref = rospy.Time(
                     data['utc_time'][0], data['utc_time'][1])
@@ -322,11 +341,11 @@ class RosNMEADriver(object):
                 current_heading = QuaternionStamped()
                 current_heading.header.stamp = current_time
                 current_heading.header.frame_id = frame_id
-                q = quaternion_from_euler(0, 0, math.radians(data['heading']))
-                current_heading.quaternion.x = q[0]
-                current_heading.quaternion.y = q[1]
-                current_heading.quaternion.z = q[2]
-                current_heading.quaternion.w = q[3]
+                self.q = quaternion_from_euler(0, 0, math.radians(data['heading']))
+                current_heading.quaternion.x = self.q[0]
+                current_heading.quaternion.y = self.q[1]
+                current_heading.quaternion.z = self.q[2]
+                current_heading.quaternion.w = self.q[3]
                 self.heading_pub.publish(current_heading)
         else:
             return False
